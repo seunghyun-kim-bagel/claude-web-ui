@@ -4,7 +4,7 @@ import { Server } from "socket.io";
 import cors from "cors";
 import { ClaudeCliManager } from "./claude-cli";
 import { listSessions, getSessionMessages, deleteSession } from "./session-reader";
-import { listProjects } from "./path-encoder";
+import { listProjects, getSessionDir } from "./path-encoder";
 import fs from "fs";
 import path from "path";
 
@@ -40,6 +40,22 @@ function ensureConfigDir(): void {
 app.get("/api/projects", (_req, res) => {
   const projects = listProjects();
   res.json({ projects });
+});
+
+app.post("/api/projects", (req, res) => {
+  const { path: dirPath } = req.body;
+  if (!dirPath) { res.status(400).json({ error: "경로 필요" }); return; }
+  if (!fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) {
+    res.status(400).json({ error: "유효하지 않은 경로" });
+    return;
+  }
+  // ~/.claude/projects/<encoded>/ 디렉토리 생성
+  const sessionDir = getSessionDir(dirPath);
+  if (!fs.existsSync(sessionDir)) {
+    fs.mkdirSync(sessionDir, { recursive: true });
+  }
+  const projects = listProjects();
+  res.json({ ok: true, projects });
 });
 
 app.get("/api/sessions", async (req, res) => {
