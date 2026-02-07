@@ -63,7 +63,7 @@ app.get("/api/settings", (_req, res) => {
     const data = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
     res.json(data);
   } else {
-    res.json({ model: "sonnet", cwd: process.cwd() });
+    res.json({ model: "opus", cwd: process.cwd() });
   }
 });
 

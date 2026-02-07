@@ -94,6 +94,17 @@ export default function ChatArea() {
           <MessageBubble key={msg.id} msg={msg} index={i} messages={messages} />
         ))}
 
+        {isStreaming && !streamingText && (
+          <div className="max-w-4xl mx-auto">
+            <div className="bg-zinc-800 text-zinc-100 rounded-lg px-4 py-3 w-full flex items-center gap-2">
+              <span className="inline-block w-2 h-2 rounded-full bg-blue-400 animate-bounce [animation-delay:0ms]" />
+              <span className="inline-block w-2 h-2 rounded-full bg-blue-400 animate-bounce [animation-delay:150ms]" />
+              <span className="inline-block w-2 h-2 rounded-full bg-blue-400 animate-bounce [animation-delay:300ms]" />
+              <span className="ml-2 text-sm text-zinc-400">응답을 생성하고 있습니다...</span>
+            </div>
+          </div>
+        )}
+
         {streamingText && (
           <div className="max-w-4xl mx-auto">
             <div className="bg-zinc-800 text-zinc-100 rounded-lg px-4 py-3 w-full">

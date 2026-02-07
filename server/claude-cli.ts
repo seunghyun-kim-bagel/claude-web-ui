@@ -49,7 +49,9 @@ export class ClaudeCliManager extends EventEmitter {
       args.push("--resume", options.sessionId);
     }
 
-    args.push(options.message);
+    // shell: true 사용 시 공백이 포함된 메시지가 분리되지 않도록 따옴표 처리
+    const escaped = options.message.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    args.push(`"${escaped}"`);
 
     this._busy = true;
     this.parser = new StreamParser();

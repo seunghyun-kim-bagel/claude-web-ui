@@ -47,6 +47,7 @@ interface ChatState {
   streamingText: string;
   sessionId: string | null;
   usage: UsageInfo;
+  queuedMessages: string[];
 
   addMessage: (msg: ChatMessage) => void;
   setMessages: (msgs: ChatMessage[]) => void;
@@ -55,14 +56,17 @@ interface ChatState {
   setIsStreaming: (v: boolean) => void;
   setSessionId: (id: string | null) => void;
   setUsage: (u: Partial<UsageInfo>) => void;
+  enqueueMessage: (msg: string) => void;
+  dequeueMessage: () => string | undefined;
   clearChat: () => void;
 }
 
-export const useChatStore = create<ChatState>((set) => ({
+export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   isStreaming: false,
   streamingText: "",
   sessionId: null,
+  queuedMessages: [],
   usage: {
     inputTokens: 0,
     outputTokens: 0,
@@ -79,12 +83,21 @@ export const useChatStore = create<ChatState>((set) => ({
   setIsStreaming: (v) => set({ isStreaming: v }),
   setSessionId: (id) => set({ sessionId: id }),
   setUsage: (u) => set((s) => ({ usage: { ...s.usage, ...u } })),
+  enqueueMessage: (msg) => set((s) => ({ queuedMessages: [...s.queuedMessages, msg] })),
+  dequeueMessage: () => {
+    const queue = get().queuedMessages;
+    if (queue.length === 0) return undefined;
+    const [first, ...rest] = queue;
+    set({ queuedMessages: rest });
+    return first;
+  },
   clearChat: () =>
     set({
       messages: [],
       streamingText: "",
       isStreaming: false,
       sessionId: null,
+      queuedMessages: [],
       usage: {
         inputTokens: 0,
         outputTokens: 0,

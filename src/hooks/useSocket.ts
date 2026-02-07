@@ -55,6 +55,21 @@ interface ResultEvent {
 
 type CLIEvent = SystemEvent | StreamEvent | AssistantEvent | UserEvent | ResultEvent;
 
+function processQueue(socketRef: React.RefObject<Socket | null>) {
+  const chatState = useChatStore.getState();
+  const next = chatState.dequeueMessage();
+  if (next && socketRef.current) {
+    const settingsState = useSettingsStore.getState();
+    chatState.setIsStreaming(true);
+    socketRef.current.emit("send_message", {
+      message: next,
+      session_id: chatState.sessionId,
+      model: settingsState.model,
+      cwd: settingsState.cwd,
+    });
+  }
+}
+
 export function useSocket() {
   const socketRef = useRef<Socket | null>(null);
 
@@ -131,6 +146,9 @@ export function useSocket() {
             cacheCreationTokens: resultEvt.usage.cache_creation_input_tokens || 0,
             totalCostUsd: resultEvt.total_cost_usd,
           });
+
+          // 대기열에 메시지가 있으면 자동 전송
+          setTimeout(() => processQueue(socketRef), 100);
           break;
         }
       }
@@ -139,6 +157,7 @@ export function useSocket() {
     socket.on("error", (data: { message: string; code: string }) => {
       console.error("[socket.io] 에러:", data);
       useChatStore.getState().setIsStreaming(false);
+      setTimeout(() => processQueue(socketRef), 100);
     });
 
     socket.on("busy", (data: { message: string }) => {
@@ -151,6 +170,8 @@ export function useSocket() {
       if (data.code !== 0 && data.code !== null) {
         console.error("[socket.io] CLI 비정상 종료, code:", data.code);
       }
+      // exit 이벤트에서도 대기열 처리
+      setTimeout(() => processQueue(socketRef), 100);
     });
 
     return () => {
@@ -164,12 +185,9 @@ export function useSocket() {
   }, []);
 
   const sendMessage = useCallback((message: string) => {
-    const socket = socketRef.current;
-    if (!socket) return;
-
     const chatState = useChatStore.getState();
-    const settingsState = useSettingsStore.getState();
 
+    // 유저 메시지 버블은 항상 즉시 표시
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: "user",
@@ -177,14 +195,21 @@ export function useSocket() {
       timestamp: new Date().toISOString(),
     };
     chatState.addMessage(userMsg);
-    chatState.setIsStreaming(true);
 
-    socket.emit("send_message", {
-      message,
-      session_id: chatState.sessionId,
-      model: settingsState.model,
-      cwd: settingsState.cwd,
-    });
+    if (chatState.isStreaming) {
+      // 스트리밍 중이면 대기열에 추가
+      chatState.enqueueMessage(message);
+    } else {
+      // 즉시 전송
+      const settingsState = useSettingsStore.getState();
+      chatState.setIsStreaming(true);
+      socketRef.current?.emit("send_message", {
+        message,
+        session_id: chatState.sessionId,
+        model: settingsState.model,
+        cwd: settingsState.cwd,
+      });
+    }
   }, []);
 
   const abort = useCallback(() => {

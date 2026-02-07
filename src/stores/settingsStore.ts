@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 interface SettingsState {
   model: string;
@@ -10,12 +11,20 @@ interface SettingsState {
   setConnected: (v: boolean) => void;
 }
 
-export const useSettingsStore = create<SettingsState>((set) => ({
-  model: "sonnet",
-  cwd: "C:\\Users\\kim\\Desktop\\projects",
-  connected: false,
+export const useSettingsStore = create<SettingsState>()(
+  persist(
+    (set) => ({
+      model: "opus",
+      cwd: "C:\\Users\\kim\\Desktop\\projects",
+      connected: false,
 
-  setModel: (m) => set({ model: m }),
-  setCwd: (c) => set({ cwd: c }),
-  setConnected: (v) => set({ connected: v }),
-}));
+      setModel: (m) => set({ model: m }),
+      setCwd: (c) => set({ cwd: c }),
+      setConnected: (v) => set({ connected: v }),
+    }),
+    {
+      name: "claude-web-ui-settings",
+      partialize: (state) => ({ model: state.model, cwd: state.cwd }),
+    }
+  )
+);
