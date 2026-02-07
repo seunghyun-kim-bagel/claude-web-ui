@@ -167,7 +167,9 @@ export function useSocket() {
     socket.on("exit", (data: { code: number | null }) => {
       useChatStore.getState().setIsStreaming(false);
       useChatStore.getState().clearStreamingText();
-      if (data.code !== 0 && data.code !== null) {
+      // Windows에서 taskkill /F 강제종료 시 0xC0000142 등의 코드 발생 — 정상 중단
+      const forceKillCodes = [3221225794, 3221225786, 1];
+      if (data.code !== 0 && data.code !== null && !forceKillCodes.includes(data.code)) {
         console.error("[socket.io] CLI 비정상 종료, code:", data.code);
       }
       // exit 이벤트에서도 대기열 처리
