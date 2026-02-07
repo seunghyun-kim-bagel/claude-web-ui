@@ -184,7 +184,7 @@ export default function SessionList() {
             )}
           </select>
           <button
-            onClick={() => { setAddingProject(!addingProject); setPathError(""); setNewPath(""); }}
+            onClick={() => { setAddingProject(!addingProject); setPathError(""); setNewPath(addingProject ? "" : cwd); }}
             className="px-2 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 border border-zinc-600 rounded text-sm shrink-0 transition-colors"
             title="프로젝트 경로 직접 입력"
           >
