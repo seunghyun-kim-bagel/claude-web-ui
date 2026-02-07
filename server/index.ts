@@ -4,6 +4,7 @@ import { Server } from "socket.io";
 import cors from "cors";
 import { ClaudeCliManager } from "./claude-cli";
 import { listSessions, getSessionMessages, deleteSession } from "./session-reader";
+import { listProjects } from "./path-encoder";
 import fs from "fs";
 import path from "path";
 
@@ -35,6 +36,11 @@ function ensureConfigDir(): void {
 }
 
 // --- REST API ---
+
+app.get("/api/projects", (_req, res) => {
+  const projects = listProjects();
+  res.json({ projects });
+});
 
 app.get("/api/sessions", async (req, res) => {
   const cwd = req.query.cwd as string;
