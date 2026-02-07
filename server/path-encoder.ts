@@ -82,7 +82,7 @@ export function listProjects(): { encoded: string; path: string; name: string; s
     const sessionFiles = fs.readdirSync(path.join(projectsDir, dir))
       .filter((f) => f.endsWith(".jsonl"));
 
-    const name = path.basename(decoded);
+    const name = getSmartName(decoded, homeDir);
 
     results.push({
       encoded: dir,
@@ -95,4 +95,30 @@ export function listProjects(): { encoded: string; path: string; name: string; s
   // 이름순 정렬
   results.sort((a, b) => a.name.localeCompare(b.name));
   return results;
+}
+
+/**
+ * 경로를 "부모/이름" 형태로 축약한다.
+ * 홈 디렉토리는 "~"로 치환.
+ */
+function getSmartName(fullPath: string, homeDir: string): string {
+  const normalized = fullPath.replace(/\\/g, "/");
+  const normalizedHome = homeDir.replace(/\\/g, "/");
+
+  // 홈 디렉토리 자체인 경우
+  if (normalized === normalizedHome) return "~";
+
+  // 홈 하위 경로인 경우 상대 경로 계산
+  if (normalized.startsWith(normalizedHome + "/")) {
+    const relative = normalized.slice(normalizedHome.length + 1);
+    const parts = relative.split("/");
+    if (parts.length === 1) return "~/" + parts[0];
+    // 마지막 2단계만 표시
+    return parts.slice(-2).join("/");
+  }
+
+  // 홈 외부 경로: 마지막 2단계
+  const parts = normalized.split("/");
+  if (parts.length <= 2) return fullPath;
+  return parts.slice(-2).join("/");
 }
