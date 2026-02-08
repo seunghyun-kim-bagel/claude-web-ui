@@ -5,6 +5,7 @@ import cors from "cors";
 import { ClaudeCliManager } from "./claude-cli";
 import { listSessions, getSessionMessages, deleteSession } from "./session-reader";
 import { listProjects, getSessionDir } from "./path-encoder";
+import { getModelList, resolveModelAlias } from "./models";
 import fs from "fs";
 import path from "path";
 
@@ -56,6 +57,11 @@ app.post("/api/projects", (req, res) => {
   }
   const projects = listProjects();
   res.json({ ok: true, projects });
+});
+
+app.get("/api/models", async (_req, res) => {
+  const models = await getModelList();
+  res.json({ models });
 });
 
 app.get("/api/sessions", async (req, res) => {
@@ -145,7 +151,7 @@ io.on("connection", (socket) => {
     socket.emit("exit", { code });
   });
 
-  socket.on("send_message", (data: {
+  socket.on("send_message", async (data: {
     message: string;
     session_id?: string | null;
     model?: string;
@@ -163,10 +169,13 @@ io.on("connection", (socket) => {
 
     addRecentDir(data.cwd);
 
+    // alias("opus")를 실제 모델 ID("claude-opus-4-6")로 변환
+    const resolvedModel = data.model ? await resolveModelAlias(data.model) : undefined;
+
     const started = manager.run({
       message: data.message,
       sessionId: data.session_id,
-      model: data.model,
+      model: resolvedModel,
       cwd: data.cwd,
     });
 
