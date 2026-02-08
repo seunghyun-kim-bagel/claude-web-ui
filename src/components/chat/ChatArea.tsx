@@ -4,6 +4,7 @@ import { useEffect, useRef, useCallback, useState, memo } from "react";
 import { useChatStore, ChatMessage, ContentBlock, ToolUseBlock } from "@/stores/chatStore";
 import MarkdownRenderer from "./MarkdownRenderer";
 import ToolUsePanel from "./ToolUsePanel";
+import ToolUseGroup from "./ToolUseGroup";
 
 const PAGE_SIZE = 50;
 
@@ -42,16 +43,37 @@ function renderAssistantContent(
   content: ContentBlock[],
   toolResults: Map<string, ToolResult>
 ) {
-  return content.map((block, i) => {
-    if (block.type === "text") {
-      return <MarkdownRenderer key={i} content={block.text} />;
+  // 연속된 tool_use 블록을 그룹으로 묶기
+  const elements: React.ReactNode[] = [];
+  let toolGroup: ToolUseBlock[] = [];
+
+  const flushGroup = () => {
+    if (toolGroup.length === 0) return;
+    if (toolGroup.length === 1) {
+      elements.push(
+        <ToolUsePanel key={`t-${toolGroup[0].id}`} tool={toolGroup[0]} result={toolResults.get(toolGroup[0].id)} />
+      );
+    } else {
+      elements.push(
+        <ToolUseGroup key={`g-${toolGroup[0].id}`} tools={[...toolGroup]} toolResults={toolResults} />
+      );
     }
+    toolGroup = [];
+  };
+
+  for (const block of content) {
     if (block.type === "tool_use") {
-      const tool = block as ToolUseBlock;
-      return <ToolUsePanel key={i} tool={tool} result={toolResults.get(tool.id)} />;
+      toolGroup.push(block as ToolUseBlock);
+    } else {
+      flushGroup();
+      if (block.type === "text") {
+        elements.push(<MarkdownRenderer key={`m-${elements.length}`} content={block.text} />);
+      }
     }
-    return null;
-  });
+  }
+  flushGroup();
+
+  return elements;
 }
 
 interface BubbleProps {
