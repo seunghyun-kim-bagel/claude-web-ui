@@ -5,7 +5,7 @@ import cors from "cors";
 import { ClaudeCliManager } from "./claude-cli";
 import { listSessions, getSessionMessages, deleteSession } from "./session-reader";
 import { listProjects, getSessionDir } from "./path-encoder";
-import { getModelList, resolveModelAlias } from "./models";
+import { getModelList, resolveModelAlias, detectModels } from "./models";
 import fs from "fs";
 import path from "path";
 
@@ -59,8 +59,8 @@ app.post("/api/projects", (req, res) => {
   res.json({ ok: true, projects });
 });
 
-app.get("/api/models", async (_req, res) => {
-  const models = await getModelList();
+app.get("/api/models", (_req, res) => {
+  const models = getModelList();
   res.json({ models });
 });
 
@@ -151,7 +151,7 @@ io.on("connection", (socket) => {
     socket.emit("exit", { code });
   });
 
-  socket.on("send_message", async (data: {
+  socket.on("send_message", (data: {
     message: string;
     session_id?: string | null;
     model?: string;
@@ -170,7 +170,7 @@ io.on("connection", (socket) => {
     addRecentDir(data.cwd);
 
     // alias("opus")를 실제 모델 ID("claude-opus-4-6")로 변환
-    const resolvedModel = data.model ? await resolveModelAlias(data.model) : undefined;
+    const resolvedModel = data.model ? resolveModelAlias(data.model) : undefined;
 
     const started = manager.run({
       message: data.message,
@@ -199,4 +199,6 @@ io.on("connection", (socket) => {
 const PORT = 3001;
 httpServer.listen(PORT, "127.0.0.1", () => {
   console.log(`[서버] WebSocket + REST 서버 시작: http://127.0.0.1:${PORT}`);
+  // 백그라운드에서 모델 감지 (서버 시작을 블로킹하지 않음)
+  detectModels().catch(() => {});
 });
