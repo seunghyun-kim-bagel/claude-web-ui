@@ -1,15 +1,24 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState, memo } from "react";
 import { useChatStore, ChatMessage, ContentBlock, ToolUseBlock } from "@/stores/chatStore";
 import MarkdownRenderer from "./MarkdownRenderer";
 import ToolUsePanel from "./ToolUsePanel";
+
+const PAGE_SIZE = 50;
+
+interface ToolResult {
+  content: string;
+  is_error: boolean;
+  stdout?: string;
+  stderr?: string;
+}
 
 function findToolResult(
   toolUseId: string,
   messages: ChatMessage[],
   currentIndex: number
-): { content: string; is_error: boolean; stdout?: string; stderr?: string } | undefined {
+): ToolResult | undefined {
   for (let i = currentIndex + 1; i < messages.length; i++) {
     const msg = messages[i];
     if (msg.role === "user" && msg.content) {
@@ -29,21 +38,28 @@ function findToolResult(
   return undefined;
 }
 
-function renderAssistantContent(content: ContentBlock[], messages: ChatMessage[], msgIndex: number) {
+function renderAssistantContent(
+  content: ContentBlock[],
+  toolResults: Map<string, ToolResult>
+) {
   return content.map((block, i) => {
     if (block.type === "text") {
       return <MarkdownRenderer key={i} content={block.text} />;
     }
     if (block.type === "tool_use") {
       const tool = block as ToolUseBlock;
-      const result = findToolResult(tool.id, messages, msgIndex);
-      return <ToolUsePanel key={i} tool={tool} result={result} />;
+      return <ToolUsePanel key={i} tool={tool} result={toolResults.get(tool.id)} />;
     }
     return null;
   });
 }
 
-function MessageBubble({ msg, index, messages }: { msg: ChatMessage; index: number; messages: ChatMessage[] }) {
+interface BubbleProps {
+  msg: ChatMessage;
+  toolResults: Map<string, ToolResult>;
+}
+
+const MessageBubble = memo(function MessageBubble({ msg, toolResults }: BubbleProps) {
   if (msg.role === "user" && msg.content.some((b) => b.type === "tool_result")) {
     return null;
   }
@@ -64,11 +80,28 @@ function MessageBubble({ msg, index, messages }: { msg: ChatMessage; index: numb
             {msg.content.map((b, i) => (b.type === "text" ? <span key={i}>{b.text}</span> : null))}
           </div>
         ) : (
-          renderAssistantContent(msg.content, messages, index)
+          renderAssistantContent(msg.content, toolResults)
         )}
       </div>
     </div>
   );
+});
+
+/** 메시지별 tool_use 결과를 미리 계산 */
+function buildToolResultMap(messages: ChatMessage[]): Map<string, ToolResult> {
+  const map = new Map<string, ToolResult>();
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (msg.role !== "assistant") continue;
+    for (const block of msg.content) {
+      if (block.type === "tool_use") {
+        const tool = block as ToolUseBlock;
+        const result = findToolResult(tool.id, messages, i);
+        if (result) map.set(tool.id, result);
+      }
+    }
+  }
+  return map;
 }
 
 export default function ChatArea() {
@@ -78,6 +111,13 @@ export default function ChatArea() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef(true);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  // 새 세션 전환 시 visibleCount 리셋
+  const sessionId = useChatStore((s) => s.sessionId);
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [sessionId]);
 
   const checkNearBottom = useCallback(() => {
     const el = scrollContainerRef.current;
@@ -91,6 +131,14 @@ export default function ChatArea() {
     }
   }, [messages, streamingText]);
 
+  const toolResults = buildToolResultMap(messages);
+  const hasMore = messages.length > visibleCount;
+  const visibleMessages = hasMore ? messages.slice(messages.length - visibleCount) : messages;
+
+  const loadMore = useCallback(() => {
+    setVisibleCount((prev) => prev + PAGE_SIZE);
+  }, []);
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <div ref={scrollContainerRef} onScroll={checkNearBottom} className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -100,8 +148,23 @@ export default function ChatArea() {
           </div>
         )}
 
-        {messages.map((msg, i) => (
-          <MessageBubble key={msg.id} msg={msg} index={i} messages={messages} />
+        {hasMore && (
+          <div className="max-w-4xl mx-auto">
+            <button
+              onClick={loadMore}
+              className="w-full text-center text-sm text-zinc-400 hover:text-zinc-200 py-2 border border-zinc-700 rounded-lg hover:bg-zinc-800 transition-colors"
+            >
+              이전 메시지 더 보기 ({messages.length - visibleCount}개 남음)
+            </button>
+          </div>
+        )}
+
+        {visibleMessages.map((msg, i) => (
+          <MessageBubble
+            key={msg.id}
+            msg={msg}
+            toolResults={toolResults}
+          />
         ))}
 
         {isStreaming && !streamingText && (
