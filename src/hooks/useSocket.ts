@@ -57,6 +57,8 @@ type CLIEvent = SystemEvent | StreamEvent | AssistantEvent | UserEvent | ResultE
 
 function processQueue(socketRef: React.RefObject<Socket | null>) {
   const chatState = useChatStore.getState();
+  // 이미 스트리밍 중이면 중복 실행 방지 (result + exit 이중 호출 대응)
+  if (chatState.isStreaming) return;
   const next = chatState.dequeueMessage();
   if (next && socketRef.current) {
     const settingsState = useSettingsStore.getState();
