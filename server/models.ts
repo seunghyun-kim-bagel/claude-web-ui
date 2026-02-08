@@ -1,6 +1,13 @@
 /**
  * Anthropic API 모델 목록 조회 및 최신 모델 자동 감지
+ *
+ * 인증 우선순위:
+ *   1. ANTHROPIC_API_KEY 환경변수
+ *   2. ~/.claude/.credentials.json (OAuth 토큰)
  */
+
+import fs from "fs";
+import path from "path";
 
 interface AnthropicModel {
   id: string;
@@ -30,17 +37,52 @@ let cachedModels: ModelInfo[] | null = null;
 let cacheTime = 0;
 const CACHE_TTL = 60 * 60 * 1000; // 1시간
 
-function getApiKey(): string | null {
-  return process.env.ANTHROPIC_API_KEY || null;
+interface AuthInfo {
+  type: "api-key" | "oauth";
+  token: string;
 }
 
-async function fetchFromApi(apiKey: string): Promise<AnthropicModel[]> {
-  const res = await fetch("https://api.anthropic.com/v1/models?limit=100", {
-    headers: {
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-  });
+function getAuth(): AuthInfo | null {
+  // 1. ANTHROPIC_API_KEY 환경변수
+  if (process.env.ANTHROPIC_API_KEY) {
+    return { type: "api-key", token: process.env.ANTHROPIC_API_KEY };
+  }
+
+  // 2. ~/.claude/.credentials.json (OAuth 토큰)
+  try {
+    const home = process.env.USERPROFILE || process.env.HOME || "";
+    const credPath = path.join(home, ".claude", ".credentials.json");
+    if (fs.existsSync(credPath)) {
+      const data = JSON.parse(fs.readFileSync(credPath, "utf-8"));
+      const oauth = data.claudeAiOauth;
+      if (oauth?.accessToken) {
+        // 만료 확인
+        if (oauth.expiresAt && Date.now() > oauth.expiresAt) {
+          console.warn("[models] OAuth 토큰 만료됨");
+          return null;
+        }
+        return { type: "oauth", token: oauth.accessToken };
+      }
+    }
+  } catch {
+    // 무시
+  }
+
+  return null;
+}
+
+async function fetchFromApi(auth: AuthInfo): Promise<AnthropicModel[]> {
+  const headers: Record<string, string> = {
+    "anthropic-version": "2023-06-01",
+  };
+
+  if (auth.type === "api-key") {
+    headers["x-api-key"] = auth.token;
+  } else {
+    headers["Authorization"] = `Bearer ${auth.token}`;
+  }
+
+  const res = await fetch("https://api.anthropic.com/v1/models?limit=100", { headers });
   if (!res.ok) throw new Error(`API ${res.status}`);
   const json = await res.json();
   return json.data || [];
@@ -73,11 +115,11 @@ export async function getModelList(): Promise<ModelInfo[]> {
     return cachedModels;
   }
 
-  const apiKey = getApiKey();
-  if (!apiKey) return FALLBACK_MODELS;
+  const auth = getAuth();
+  if (!auth) return FALLBACK_MODELS;
 
   try {
-    const models = await fetchFromApi(apiKey);
+    const models = await fetchFromApi(auth);
     cachedModels = pickLatest(models);
     cacheTime = Date.now();
     console.log("[models] 최신 모델 감지:", cachedModels.map((m) => `${m.alias}→${m.modelId}`).join(", "));
