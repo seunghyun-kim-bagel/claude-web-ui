@@ -5,7 +5,7 @@
  * 서버 시작 시 CLI에 짧은 요청을 보내 실제 모델 ID를 확인한다.
  */
 
-import { execSync } from "child_process";
+import { exec } from "child_process";
 
 export interface ModelInfo {
   alias: string;
@@ -27,22 +27,28 @@ const FALLBACK_MODELS: ModelInfo[] = [
 
 let cachedModels: ModelInfo[] | null = null;
 
-function probeModel(alias: string): string | null {
-  try {
-    const out = execSync(
+function probeModel(alias: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const child = exec(
       `claude -p --model ${alias} --output-format json --max-budget-usd 0.001 "hi"`,
-      { timeout: 30000, stdio: ["ignore", "pipe", "ignore"], shell: true }
-    ).toString("utf-8");
-    const json = JSON.parse(out);
-    const usage = json.modelUsage;
-    if (usage) {
-      const modelId = Object.keys(usage)[0];
-      if (modelId) return modelId;
-    }
-  } catch {
-    // 무시
-  }
-  return null;
+      { timeout: 30000, shell: true },
+      (err, stdout) => {
+        if (err) { resolve(null); return; }
+        try {
+          const json = JSON.parse(stdout);
+          const usage = json.modelUsage;
+          if (usage) {
+            const modelId = Object.keys(usage)[0];
+            if (modelId) { resolve(modelId); return; }
+          }
+        } catch {
+          // 무시
+        }
+        resolve(null);
+      }
+    );
+    child.stdin?.end();
+  });
 }
 
 function formatLabel(modelId: string, alias: string): string {
@@ -56,25 +62,23 @@ function formatLabel(modelId: string, alias: string): string {
   return `${name} (${FAMILY_LABELS[alias]})`;
 }
 
-/** 서버 시작 시 한 번 호출하여 모델 감지 (백그라운드) */
+/** 서버 시작 시 한 번 호출하여 모델 감지 (백그라운드, 비블로킹) */
 export async function detectModels(): Promise<void> {
   console.log("[models] CLI를 통해 최신 모델 감지 중...");
-  const results: ModelInfo[] = [];
 
-  for (const alias of Object.keys(FAMILY_LABELS)) {
-    const modelId = probeModel(alias);
+  // 3개 모델 병렬 감지
+  const aliases = Object.keys(FAMILY_LABELS);
+  const ids = await Promise.all(aliases.map((a) => probeModel(a)));
+
+  const results: ModelInfo[] = aliases.map((alias, i) => {
+    const modelId = ids[i];
     if (modelId) {
-      results.push({
-        alias,
-        label: formatLabel(modelId, alias),
-        modelId,
-      });
       console.log(`[models]   ${alias} → ${modelId}`);
-    } else {
-      results.push(FALLBACK_MODELS.find((m) => m.alias === alias)!);
-      console.log(`[models]   ${alias} → 감지 실패, 폴백 사용`);
+      return { alias, label: formatLabel(modelId, alias), modelId };
     }
-  }
+    console.log(`[models]   ${alias} → 감지 실패, 폴백 사용`);
+    return FALLBACK_MODELS.find((m) => m.alias === alias)!;
+  });
 
   cachedModels = results;
 }
