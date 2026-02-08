@@ -49,20 +49,21 @@ export class ClaudeCliManager extends EventEmitter {
       args.push("--resume", options.sessionId);
     }
 
-    // shell: true 사용 시 공백이 포함된 메시지가 분리되지 않도록 따옴표 처리
-    const escaped = options.message.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    args.push(`"${escaped}"`);
-
     this._busy = true;
     this.parser = new StreamParser();
 
     // Windows에서는 claude.cmd를 사용하므로 shell: true 필요
+    // 메시지는 stdin으로 전달 (개행 등 특수문자 셸 이스케이프 문제 방지)
     this.process = spawn("claude", args, {
       cwd: options.cwd,
       shell: true,
       env: { ...process.env },
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
     });
+
+    // 메시지를 stdin으로 전달하고 닫기
+    this.process.stdin?.write(options.message);
+    this.process.stdin?.end();
 
     this.parser.on("data", (data: unknown) => {
       this.emit("data", data);
