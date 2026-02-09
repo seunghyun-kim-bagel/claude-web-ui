@@ -126,12 +126,12 @@ export async function getSessionMessages(
  */
 function isUserInputMessage(parsed: Record<string, unknown>): boolean {
   if (parsed.type !== "user") return false;
-  const msg = parsed.message as { content?: unknown[] } | undefined;
-  if (!msg?.content || !Array.isArray(msg.content)) return false;
-  return msg.content.some((b) => {
-    const block = b as Record<string, unknown>;
-    return block.type === "text";
-  });
+  const msg = parsed.message as { content?: unknown } | undefined;
+  if (!msg?.content) return false;
+  // 사용자가 직접 입력한 메시지: content가 문자열
+  // tool_result 메시지: content가 배열 [{type: "tool_result", ...}]
+  if (typeof msg.content === "string") return true;
+  return false;
 }
 
 /**
