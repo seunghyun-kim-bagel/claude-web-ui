@@ -79,9 +79,11 @@ function renderAssistantContent(
 interface BubbleProps {
   msg: ChatMessage;
   toolResults: Map<string, ToolResult>;
+  onRewind?: () => void;
+  showRewind?: boolean;
 }
 
-const MessageBubble = memo(function MessageBubble({ msg, toolResults }: BubbleProps) {
+const MessageBubble = memo(function MessageBubble({ msg, toolResults, onRewind, showRewind }: BubbleProps) {
   if (msg.role === "user" && msg.content.some((b) => b.type === "tool_result")) {
     return null;
   }
@@ -89,7 +91,23 @@ const MessageBubble = memo(function MessageBubble({ msg, toolResults }: BubblePr
   const isUser = msg.role === "user";
 
   return (
-    <div className={`max-w-4xl mx-auto ${isUser ? "flex justify-end" : ""}`}>
+    <div className={`group max-w-4xl mx-auto ${isUser ? "flex justify-end items-start gap-1" : ""}`}>
+      {isUser && showRewind && (
+        <button
+          onClick={() => {
+            if (window.confirm("이 메시지 이후의 대화를 모두 삭제합니다. 계속하시겠습니까?")) {
+              onRewind?.();
+            }
+          }}
+          className="opacity-0 group-hover:opacity-100 transition-opacity mt-2 p-1.5 rounded-md text-zinc-500 hover:text-zinc-200 hover:bg-zinc-700"
+          title="이 시점으로 되감기"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+            <path d="M3 3v5h5" />
+          </svg>
+        </button>
+      )}
       <div
         className={`rounded-lg px-4 py-3 ${
           isUser
@@ -126,7 +144,11 @@ function buildToolResultMap(messages: ChatMessage[]): Map<string, ToolResult> {
   return map;
 }
 
-export default function ChatArea() {
+interface ChatAreaProps {
+  onRewind?: (messageId: string, userTurnIndex: number) => Promise<boolean>;
+}
+
+export default function ChatArea({ onRewind }: ChatAreaProps) {
   const messages = useChatStore((s) => s.messages);
   const streamingText = useChatStore((s) => s.streamingText);
   const isStreaming = useChatStore((s) => s.isStreaming);
@@ -157,6 +179,19 @@ export default function ChatArea() {
   const hasMore = messages.length > visibleCount;
   const visibleMessages = hasMore ? messages.slice(messages.length - visibleCount) : messages;
 
+  // 유저가 직접 입력한 메시지(tool_result 아닌)의 턴 인덱스 매핑
+  const userTurnMap = new Map<string, number>();
+  let lastUserInputId: string | null = null;
+  let turnIdx = 0;
+  for (const msg of messages) {
+    const isUserInput = msg.role === "user" && msg.content.some((b) => b.type === "text") && !msg.content.some((b) => b.type === "tool_result");
+    if (isUserInput) {
+      userTurnMap.set(msg.id, turnIdx);
+      lastUserInputId = msg.id;
+      turnIdx++;
+    }
+  }
+
   const loadMore = useCallback(() => {
     setVisibleCount((prev) => prev + PAGE_SIZE);
   }, []);
@@ -181,13 +216,22 @@ export default function ChatArea() {
           </div>
         )}
 
-        {visibleMessages.map((msg, i) => (
-          <MessageBubble
-            key={msg.id}
-            msg={msg}
-            toolResults={toolResults}
-          />
-        ))}
+        {visibleMessages.map((msg) => {
+          const turnIndex = userTurnMap.get(msg.id);
+          const isUserInput = turnIndex !== undefined;
+          const isLastUserInput = msg.id === lastUserInputId;
+          const canRewind = isUserInput && !isLastUserInput && !isStreaming && !!onRewind;
+
+          return (
+            <MessageBubble
+              key={msg.id}
+              msg={msg}
+              toolResults={toolResults}
+              showRewind={canRewind}
+              onRewind={canRewind ? () => onRewind(msg.id, turnIndex) : undefined}
+            />
+          );
+        })}
 
         {isStreaming && !streamingText && (
           <div className="max-w-4xl mx-auto">

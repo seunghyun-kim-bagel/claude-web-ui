@@ -7,7 +7,7 @@ import ChatArea from "@/components/chat/ChatArea";
 import MessageInput from "@/components/chat/MessageInput";
 
 export default function Home() {
-  const { sendMessage, abort } = useSocket();
+  const { sendMessage, abort, rewind } = useSocket();
 
   return (
     <div className="h-screen flex flex-col">
@@ -15,7 +15,7 @@ export default function Home() {
       <div className="flex-1 flex overflow-hidden">
         <SessionList />
         <main className="flex-1 flex flex-col overflow-hidden">
-          <ChatArea />
+          <ChatArea onRewind={rewind} />
           <MessageInput onSend={sendMessage} onAbort={abort} />
         </main>
       </div>

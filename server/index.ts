@@ -3,7 +3,7 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
 import { ClaudeCliManager } from "./claude-cli";
-import { listSessions, getSessionMessages, deleteSession } from "./session-reader";
+import { listSessions, getSessionMessages, deleteSession, rewindSession } from "./session-reader";
 import { listProjects, getSessionDir } from "./path-encoder";
 import { getModelList, resolveModelAlias, detectModels } from "./models";
 import fs from "fs";
@@ -76,6 +76,18 @@ app.get("/api/sessions/:id/messages", async (req, res) => {
   if (!cwd) { res.status(400).json({ error: "cwd 파라미터 필요" }); return; }
   const messages = await getSessionMessages(cwd, req.params.id);
   res.json({ messages });
+});
+
+app.post("/api/sessions/:id/rewind", async (req, res) => {
+  const cwd = req.query.cwd as string;
+  const { userTurnIndex } = req.body;
+  if (!cwd) { res.status(400).json({ error: "cwd 파라미터 필요" }); return; }
+  if (userTurnIndex == null || userTurnIndex < 0) {
+    res.status(400).json({ error: "userTurnIndex 필요" });
+    return;
+  }
+  const result = await rewindSession(cwd, req.params.id, userTurnIndex);
+  res.json(result);
 });
 
 app.delete("/api/sessions/:id", async (req, res) => {

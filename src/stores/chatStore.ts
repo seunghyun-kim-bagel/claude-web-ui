@@ -26,6 +26,7 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: ContentBlock[];
   timestamp: string;
+  uuid?: string; // CLI 세션 JSONL의 uuid (rewind용)
   toolUseResult?: {
     stdout?: string;
     stderr?: string;
@@ -58,6 +59,7 @@ interface ChatState {
   setUsage: (u: Partial<UsageInfo>) => void;
   enqueueMessage: (msg: string) => void;
   dequeueMessage: () => string | undefined;
+  rewindToMessage: (messageId: string) => void;
   clearChat: () => void;
 }
 
@@ -90,6 +92,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const [first, ...rest] = queue;
     set({ queuedMessages: rest });
     return first;
+  },
+  rewindToMessage: (messageId: string) => {
+    const msgs = get().messages;
+    const idx = msgs.findIndex((m) => m.id === messageId);
+    if (idx < 0) return;
+    set({
+      messages: msgs.slice(0, idx),
+      streamingText: "",
+      isStreaming: false,
+      queuedMessages: [],
+    });
   },
   clearChat: () =>
     set({

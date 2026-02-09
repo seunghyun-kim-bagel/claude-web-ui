@@ -121,6 +121,90 @@ export async function getSessionMessages(
 }
 
 /**
+ * JSONL의 user 라인이 사용자가 직접 입력한 메시지인지 판별한다.
+ * (tool_result가 아닌 텍스트 콘텐츠를 포함하는 user 메시지)
+ */
+function isUserInputMessage(parsed: Record<string, unknown>): boolean {
+  if (parsed.type !== "user") return false;
+  const msg = parsed.message as { content?: unknown[] } | undefined;
+  if (!msg?.content || !Array.isArray(msg.content)) return false;
+  return msg.content.some((b) => {
+    const block = b as Record<string, unknown>;
+    return block.type === "text";
+  });
+}
+
+/**
+ * 세션을 특정 유저 턴 시점으로 되감는다.
+ * userTurnIndex번째 사용자 입력 메시지(0-based) 이전까지만 유지하고 나머지를 잘라낸다.
+ * 안전을 위해 .bak 백업 파일을 생성한다.
+ */
+export async function rewindSession(
+  projectDir: string,
+  sessionId: string,
+  userTurnIndex: number
+): Promise<{ ok: boolean; messagesRemoved: number }> {
+  const sessionDir = getSessionDir(projectDir);
+  const filePath = path.join(sessionDir, `${sessionId}.jsonl`);
+
+  if (!fs.existsSync(filePath)) {
+    return { ok: false, messagesRemoved: 0 };
+  }
+
+  const content = fs.readFileSync(filePath, "utf-8");
+  const lines = content.split("\n");
+
+  // userTurnIndex번째 사용자 입력 메시지의 라인 인덱스 찾기
+  let cutIndex = -1;
+  let turnCount = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    try {
+      const parsed = JSON.parse(line);
+      if (isUserInputMessage(parsed)) {
+        if (turnCount === userTurnIndex) {
+          cutIndex = i;
+          break;
+        }
+        turnCount++;
+      }
+    } catch {
+      // 파싱 실패 무시
+    }
+  }
+
+  if (cutIndex < 0) {
+    return { ok: false, messagesRemoved: 0 };
+  }
+
+  // 잘라낼 메시지 수 계산 (user/assistant만 카운트)
+  let messagesRemoved = 0;
+  for (let i = cutIndex; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    try {
+      const parsed = JSON.parse(line);
+      if (parsed.type === "user" || parsed.type === "assistant") {
+        messagesRemoved++;
+      }
+    } catch {
+      // 무시
+    }
+  }
+
+  // 백업 생성
+  const backupPath = filePath + ".bak";
+  fs.writeFileSync(backupPath, content, "utf-8");
+
+  // cutIndex 이전까지만 유지
+  const remaining = lines.slice(0, cutIndex).join("\n");
+  fs.writeFileSync(filePath, remaining.endsWith("\n") ? remaining : remaining + "\n", "utf-8");
+
+  return { ok: true, messagesRemoved };
+}
+
+/**
  * 세션 JSONL 파일을 삭제한다.
  */
 export async function deleteSession(projectDir: string, sessionId: string): Promise<boolean> {

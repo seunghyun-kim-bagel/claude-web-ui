@@ -27,6 +27,7 @@ interface AssistantEvent {
     content: ContentBlock[];
   };
   session_id: string;
+  uuid?: string;
 }
 
 interface UserEvent {
@@ -34,6 +35,7 @@ interface UserEvent {
   message: {
     content: ContentBlock[];
   };
+  uuid?: string;
   tool_use_result?: {
     stdout?: string;
     stderr?: string;
@@ -57,10 +59,18 @@ type CLIEvent = SystemEvent | StreamEvent | AssistantEvent | UserEvent | ResultE
 
 function processQueue(socketRef: React.RefObject<Socket | null>) {
   const chatState = useChatStore.getState();
-  // 이미 스트리밍 중이면 중복 실행 방지 (result + exit 이중 호출 대응)
   if (chatState.isStreaming) return;
   const next = chatState.dequeueMessage();
   if (next && socketRef.current) {
+    // 큐에서 꺼낸 시점에 유저 버블 추가 (실제 전송 순서 = 화면 순서)
+    const userMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: "user",
+      content: [{ type: "text", text: next }],
+      timestamp: new Date().toISOString(),
+    };
+    chatState.addMessage(userMsg);
+
     const settingsState = useSettingsStore.getState();
     chatState.setIsStreaming(true);
     socketRef.current.emit("send_message", {
@@ -114,6 +124,7 @@ export function useSocket() {
             role: "assistant",
             content: assistantEvt.message.content,
             timestamp: new Date().toISOString(),
+            uuid: assistantEvt.uuid,
           };
           useChatStore.getState().addMessage(msg);
 
@@ -130,6 +141,7 @@ export function useSocket() {
             role: "user",
             content: userEvt.message.content as ContentBlock[],
             timestamp: new Date().toISOString(),
+            uuid: userEvt.uuid,
             toolUseResult: userEvt.tool_use_result,
           };
           useChatStore.getState().addMessage(toolMsg);
@@ -148,9 +160,7 @@ export function useSocket() {
             cacheCreationTokens: resultEvt.usage.cache_creation_input_tokens || 0,
             totalCostUsd: resultEvt.total_cost_usd,
           });
-
-          // 대기열에 메시지가 있으면 자동 전송
-          setTimeout(() => processQueue(socketRef), 100);
+          // processQueue는 exit 이벤트에서만 호출 (서버 busy 상태 방지)
           break;
         }
       }
@@ -191,20 +201,19 @@ export function useSocket() {
   const sendMessage = useCallback((message: string) => {
     const chatState = useChatStore.getState();
 
-    // 유저 메시지 버블은 항상 즉시 표시
-    const userMsg: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: "user",
-      content: [{ type: "text", text: message }],
-      timestamp: new Date().toISOString(),
-    };
-    chatState.addMessage(userMsg);
-
     if (chatState.isStreaming) {
-      // 스트리밍 중이면 대기열에 추가
+      // 스트리밍 중이면 대기열에만 추가 (버블은 processQueue에서 전송 시 표시)
       chatState.enqueueMessage(message);
     } else {
-      // 즉시 전송
+      // 즉시 전송: 유저 버블 추가 후 전송
+      const userMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: [{ type: "text", text: message }],
+        timestamp: new Date().toISOString(),
+      };
+      chatState.addMessage(userMsg);
+
       const settingsState = useSettingsStore.getState();
       chatState.setIsStreaming(true);
       socketRef.current?.emit("send_message", {
@@ -220,5 +229,37 @@ export function useSocket() {
     socketRef.current?.emit("abort");
   }, []);
 
-  return { sendMessage, abort };
+  const rewind = useCallback(async (messageId: string, userTurnIndex: number): Promise<boolean> => {
+    const chatState = useChatStore.getState();
+    const settingsState = useSettingsStore.getState();
+
+    // 진행 중인 스트리밍 중단
+    if (chatState.isStreaming) {
+      socketRef.current?.emit("abort");
+    }
+
+    if (!chatState.sessionId) return false;
+
+    try {
+      const res = await fetch(
+        `http://localhost:3001/api/sessions/${chatState.sessionId}/rewind?cwd=${encodeURIComponent(settingsState.cwd)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userTurnIndex }),
+        }
+      );
+      const data = await res.json();
+      if (data.ok) {
+        chatState.rewindToMessage(messageId);
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error("[rewind] 실패:", err);
+      return false;
+    }
+  }, []);
+
+  return { sendMessage, abort, rewind };
 }
