@@ -5,6 +5,7 @@ import { useChatStore, ChatMessage, ContentBlock, ToolUseBlock } from "@/stores/
 import MarkdownRenderer from "./MarkdownRenderer";
 import ToolUsePanel from "./ToolUsePanel";
 import ToolUseGroup from "./ToolUseGroup";
+import ToolActivityGroup from "./ToolActivityGroup";
 
 const PAGE_SIZE = 50;
 
@@ -144,6 +145,81 @@ function buildToolResultMap(messages: ChatMessage[]): Map<string, ToolResult> {
   return map;
 }
 
+/** 유저가 직접 입력한 텍스트 메시지인지 판별 (tool_result 제외) */
+function isUserTextInput(msg: ChatMessage): boolean {
+  return (
+    msg.role === "user" &&
+    msg.content.some((b) => b.type === "text") &&
+    !msg.content.some((b) => b.type === "tool_result")
+  );
+}
+
+type RenderItem =
+  | { type: "message"; msg: ChatMessage }
+  | { type: "tool-activity"; messages: ChatMessage[] };
+
+/**
+ * 중간 도구 실행 메시지들을 하나의 접이식 그룹으로 묶는다.
+ * 유저 입력 → [중간 assistant 메시지들] → 최종 assistant 메시지 구조로 변환.
+ */
+function buildRenderItems(messages: ChatMessage[]): RenderItem[] {
+  const items: RenderItem[] = [];
+
+  // 해당 인덱스의 assistant 메시지가 현재 턴의 마지막인지 확인
+  function isLastAssistantInTurn(index: number): boolean {
+    for (let j = index + 1; j < messages.length; j++) {
+      if (isUserTextInput(messages[j])) return true;
+      if (messages[j].role === "assistant") return false;
+    }
+    return true;
+  }
+
+  let intermediateGroup: ChatMessage[] = [];
+
+  function flushIntermediates() {
+    if (intermediateGroup.length > 0) {
+      items.push({ type: "tool-activity", messages: [...intermediateGroup] });
+      intermediateGroup = [];
+    }
+  }
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+
+    // tool_result user 메시지 → 스킵 (기존에도 숨김)
+    if (msg.role === "user" && msg.content.some((b) => b.type === "tool_result")) {
+      continue;
+    }
+
+    // 유저 텍스트 입력 → 그룹 flush 후 표시
+    if (isUserTextInput(msg)) {
+      flushIntermediates();
+      items.push({ type: "message", msg });
+      continue;
+    }
+
+    // assistant 메시지
+    if (msg.role === "assistant") {
+      if (isLastAssistantInTurn(i)) {
+        // 턴의 마지막 assistant → 일반 버블로 표시
+        flushIntermediates();
+        items.push({ type: "message", msg });
+      } else {
+        // 중간 assistant → 그룹에 수집
+        intermediateGroup.push(msg);
+      }
+      continue;
+    }
+
+    // 기타 → 일반 표시
+    flushIntermediates();
+    items.push({ type: "message", msg });
+  }
+
+  flushIntermediates();
+  return items;
+}
+
 interface ChatAreaProps {
   onRewind?: (messageId: string, userTurnIndex: number) => Promise<boolean>;
 }
@@ -184,13 +260,15 @@ export default function ChatArea({ onRewind }: ChatAreaProps) {
   let lastUserInputId: string | null = null;
   let turnIdx = 0;
   for (const msg of messages) {
-    const isUserInput = msg.role === "user" && msg.content.some((b) => b.type === "text") && !msg.content.some((b) => b.type === "tool_result");
-    if (isUserInput) {
+    if (isUserTextInput(msg)) {
       userTurnMap.set(msg.id, turnIdx);
       lastUserInputId = msg.id;
       turnIdx++;
     }
   }
+
+  // 중간 도구 실행 메시지를 그룹화한 렌더 아이템
+  const renderItems = buildRenderItems(visibleMessages);
 
   const loadMore = useCallback(() => {
     setVisibleCount((prev) => prev + PAGE_SIZE);
@@ -216,7 +294,18 @@ export default function ChatArea({ onRewind }: ChatAreaProps) {
           </div>
         )}
 
-        {visibleMessages.map((msg) => {
+        {renderItems.map((item) => {
+          if (item.type === "tool-activity") {
+            return (
+              <ToolActivityGroup
+                key={`ta-${item.messages[0].id}`}
+                messages={item.messages}
+                toolResults={toolResults}
+              />
+            );
+          }
+
+          const msg = item.msg;
           const turnIndex = userTurnMap.get(msg.id);
           const isUserInput = turnIndex !== undefined;
           const isLastUserInput = msg.id === lastUserInputId;
