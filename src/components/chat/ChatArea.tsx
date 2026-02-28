@@ -6,6 +6,7 @@ import MarkdownRenderer from "./MarkdownRenderer";
 import ToolUsePanel from "./ToolUsePanel";
 import ToolUseGroup from "./ToolUseGroup";
 import ToolActivityGroup from "./ToolActivityGroup";
+import InteractiveToolPanel, { isInteractiveTool } from "./InteractiveToolPanel";
 
 const PAGE_SIZE = 50;
 
@@ -42,9 +43,10 @@ function findToolResult(
 
 function renderAssistantContent(
   content: ContentBlock[],
-  toolResults: Map<string, ToolResult>
+  toolResults: Map<string, ToolResult>,
+  onSendMessage?: (message: string) => void
 ) {
-  // 연속된 tool_use 블록을 그룹으로 묶기
+  // 연속된 tool_use 블록을 그룹으로 묶기 (대화형 도구는 별도 렌더링)
   const elements: React.ReactNode[] = [];
   let toolGroup: ToolUseBlock[] = [];
 
@@ -64,7 +66,20 @@ function renderAssistantContent(
 
   for (const block of content) {
     if (block.type === "tool_use") {
-      toolGroup.push(block as ToolUseBlock);
+      const toolBlock = block as ToolUseBlock;
+      if (isInteractiveTool(toolBlock.name)) {
+        flushGroup();
+        elements.push(
+          <InteractiveToolPanel
+            key={`it-${toolBlock.id}`}
+            tool={toolBlock}
+            result={toolResults.get(toolBlock.id)}
+            onSendMessage={onSendMessage}
+          />
+        );
+      } else {
+        toolGroup.push(toolBlock);
+      }
     } else {
       flushGroup();
       if (block.type === "text") {
@@ -82,9 +97,10 @@ interface BubbleProps {
   toolResults: Map<string, ToolResult>;
   onRewind?: () => void;
   showRewind?: boolean;
+  onSendMessage?: (message: string) => void;
 }
 
-const MessageBubble = memo(function MessageBubble({ msg, toolResults, onRewind, showRewind }: BubbleProps) {
+const MessageBubble = memo(function MessageBubble({ msg, toolResults, onRewind, showRewind, onSendMessage }: BubbleProps) {
   if (msg.role === "user" && msg.content.some((b) => b.type === "tool_result")) {
     return null;
   }
@@ -121,7 +137,7 @@ const MessageBubble = memo(function MessageBubble({ msg, toolResults, onRewind, 
             {msg.content.map((b, i) => (b.type === "text" ? <span key={i}>{b.text}</span> : null))}
           </div>
         ) : (
-          renderAssistantContent(msg.content, toolResults)
+          renderAssistantContent(msg.content, toolResults, onSendMessage)
         )}
       </div>
     </div>
@@ -158,9 +174,17 @@ type RenderItem =
   | { type: "message"; msg: ChatMessage }
   | { type: "tool-activity"; messages: ChatMessage[] };
 
+/** 대화형 도구(AskUserQuestion, EnterPlanMode, ExitPlanMode)가 포함된 메시지인지 */
+function hasInteractiveTool(msg: ChatMessage): boolean {
+  return msg.content.some(
+    (b) => b.type === "tool_use" && isInteractiveTool((b as ToolUseBlock).name)
+  );
+}
+
 /**
  * 중간 도구 실행 메시지들을 하나의 접이식 그룹으로 묶는다.
  * 유저 입력 → [중간 assistant 메시지들] → 최종 assistant 메시지 구조로 변환.
+ * 대화형 도구가 포함된 메시지는 항상 단독 표시.
  */
 function buildRenderItems(messages: ChatMessage[]): RenderItem[] {
   const items: RenderItem[] = [];
@@ -200,8 +224,8 @@ function buildRenderItems(messages: ChatMessage[]): RenderItem[] {
 
     // assistant 메시지
     if (msg.role === "assistant") {
-      if (isLastAssistantInTurn(i)) {
-        // 턴의 마지막 assistant → 일반 버블로 표시
+      if (isLastAssistantInTurn(i) || hasInteractiveTool(msg)) {
+        // 턴의 마지막 assistant 또는 대화형 도구 포함 → 일반 버블로 표시
         flushIntermediates();
         items.push({ type: "message", msg });
       } else {
@@ -222,9 +246,10 @@ function buildRenderItems(messages: ChatMessage[]): RenderItem[] {
 
 interface ChatAreaProps {
   onRewind?: (messageId: string, userTurnIndex: number) => Promise<boolean>;
+  onSendMessage?: (message: string) => void;
 }
 
-export default function ChatArea({ onRewind }: ChatAreaProps) {
+export default function ChatArea({ onRewind, onSendMessage }: ChatAreaProps) {
   const messages = useChatStore((s) => s.messages);
   const streamingText = useChatStore((s) => s.streamingText);
   const isStreaming = useChatStore((s) => s.isStreaming);
@@ -318,6 +343,7 @@ export default function ChatArea({ onRewind }: ChatAreaProps) {
               toolResults={toolResults}
               showRewind={canRewind}
               onRewind={canRewind ? () => onRewind(msg.id, turnIndex) : undefined}
+              onSendMessage={onSendMessage}
             />
           );
         })}

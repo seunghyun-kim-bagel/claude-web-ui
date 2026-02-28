@@ -31,7 +31,7 @@ function probeModel(alias: string): Promise<string | null> {
   return new Promise((resolve) => {
     const child = exec(
       `claude -p --model ${alias} --output-format json --max-budget-usd 0.001 "hi"`,
-      { timeout: 30000, shell: true },
+      { timeout: 30000 },
       (err, stdout) => {
         if (err) { resolve(null); return; }
         try {

@@ -15,7 +15,7 @@ export default function Home() {
       <div className="flex-1 flex overflow-hidden">
         <SessionList />
         <main className="flex-1 flex flex-col overflow-hidden">
-          <ChatArea onRewind={rewind} />
+          <ChatArea onRewind={rewind} onSendMessage={sendMessage} />
           <MessageInput onSend={sendMessage} onAbort={abort} />
         </main>
       </div>
