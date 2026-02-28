@@ -166,8 +166,8 @@ export function useSocket() {
       }
     });
 
-    socket.on("error", (data: { message: string; code: string }) => {
-      console.error("[socket.io] 에러:", data);
+    socket.on("cli_error", (data: { message: string; code: string }) => {
+      console.error("[socket.io] CLI 에러:", data);
       useChatStore.getState().setIsStreaming(false);
       setTimeout(() => processQueue(socketRef), 100);
     });
@@ -192,7 +192,7 @@ export function useSocket() {
       socket.off("connect");
       socket.off("disconnect");
       socket.off("stream");
-      socket.off("error");
+      socket.off("cli_error");
       socket.off("busy");
       socket.off("exit");
     };

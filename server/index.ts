@@ -156,7 +156,7 @@ io.on("connection", (socket) => {
   });
 
   manager.on("error", (msg: string) => {
-    socket.emit("error", { message: msg, code: "PROCESS_ERROR" });
+    socket.emit("cli_error", { message: msg, code: "PROCESS_ERROR" });
   });
 
   manager.on("exit", (code: number | null) => {
@@ -175,7 +175,7 @@ io.on("connection", (socket) => {
     }
 
     if (!data.message?.trim()) {
-      socket.emit("error", { message: "빈 메시지", code: "INVALID_INPUT" });
+      socket.emit("cli_error", { message: "빈 메시지", code: "INVALID_INPUT" });
       return;
     }
 
