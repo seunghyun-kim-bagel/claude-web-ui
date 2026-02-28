@@ -57,7 +57,7 @@ export class ClaudeCliManager extends EventEmitter {
     this.process = spawn("claude", args, {
       cwd: options.cwd,
       shell: true,
-      env: { ...process.env },
+      env: { ...process.env, CLAUDECODE: undefined },
       stdio: ["pipe", "pipe", "pipe"],
     });
 
